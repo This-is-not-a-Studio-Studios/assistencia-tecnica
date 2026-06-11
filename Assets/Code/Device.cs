@@ -7,11 +7,14 @@ public class Device : MonoBehaviour
     private void Start()
     {
         this._parts = this.GetComponentsInChildren<Part>();
+    }
+
+    public Part FindParentPart(GameObject targetObject)
+    {
         for (int i = 0; i < this._parts.Length; i++)
         {
-            if (!this._parts[i].IsChassis) continue;
-            GameObject.FindFirstObjectByType<ManipulationManager>().TrySetAnchorObject(this._parts[i].gameObject);
-            break;
+            if (targetObject == this._parts[i].PartModel) return this._parts[i];
         }
+        return null;
     }
 }

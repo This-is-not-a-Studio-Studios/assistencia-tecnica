@@ -2,10 +2,16 @@ using UnityEngine;
 
 public class ManipulationManager : MonoBehaviour
 {
+    [Header("Debug")]
+    [SerializeField] public Device _debugDevide;
+    [SerializeField] private GameObject _sphere;
+
     [SerializeField] private Part _focusedPart;
     [SerializeField] private GameObject _anchorObject;
-
-    private float _dragDelayValue = 200; // in ms
+    [Header("Stuff")]
+    [SerializeField] private GameObject _movePlane;
+    
+    private float _dragDelayValue = 100; // in ms
     private float _dragDelayTimer = 0;
     private bool _shouldIncrementDragDelay = false;
 
@@ -21,9 +27,10 @@ public class ManipulationManager : MonoBehaviour
 
         this.InputHandler();
         this.UpdateDelayTimer();
-
         this.DragAnchorObject();
         this.RotateAnchorObject();
+
+        this._sphere.transform.localPosition = this._movePlaneHitPoint;
     }
 
     private void InputHandler()
@@ -33,9 +40,21 @@ public class ManipulationManager : MonoBehaviour
             this._shouldIncrementDragDelay = true;
             this.TryClickPart(PartClickMode.Focus);
         }
+
+        if (this._isDragging && this._focusedPart.PartState == PartState.Socketed)
+        {
+            this._focusedPart.TryChangeState(PartInteractionMode.Drag);
+            this.FindAndSetAnchorObject();
+        }
+
         if (Input.GetKeyUp(KeyCode.Mouse0))
         {
             if (!this._isDragging) { this.TryClickPart(PartClickMode.Interact); }
+            else if (this._focusedPart.PartState == PartState.Loose)
+            {
+                this._focusedPart.TryChangeState(PartInteractionMode.Drag);
+                this.FindAndSetAnchorObject();
+            }
 
             this._shouldIncrementDragDelay = false;
             this._dragDelayTimer = 0f;
@@ -54,21 +73,21 @@ public class ManipulationManager : MonoBehaviour
     {
         if (Physics.Raycast(Camera.main.ScreenPointToRay(Input.mousePosition), out RaycastHit hitInfo, float.MaxValue, 1 << 31))
         {
-            Part hitPart = hitInfo.collider.gameObject.GetComponent<Part>();
+            Part hitPart = this._debugDevide.FindParentPart(hitInfo.transform.gameObject);
+
+            if (!hitPart) return;
+
+            this._movePlane.transform.position = hitInfo.point;
+            this._movePlaneHitPoint = hitInfo.point;
 
             switch (mode)
             {
                 case PartClickMode.Interact:
-                    if (hitPart == this._focusedPart) { this._focusedPart.TryDoTheThing(); }
+                    if (hitPart == this._focusedPart) { this._focusedPart.TryChangeState(PartInteractionMode.Click); }
                     return;
                 case PartClickMode.Focus:
                     this.FocusPart(hitPart);
                     this.FindAndSetAnchorObject();
-                    this._dragOffset = this._anchorObject.transform.position - this._movePlaneHitPoint;
-                    return;
-                case PartClickMode.Both:
-                    if (hitPart == this._focusedPart) { this._focusedPart.TryDoTheThing(); }
-                    else { this.FocusPart(hitPart); }
                     return;
                 default: return;
             }
@@ -79,12 +98,6 @@ public class ManipulationManager : MonoBehaviour
     {
         while (part != null)
         {
-            if (!part.CanBeFocused)
-            {
-                part = part.transform.parent.GetComponent<Part>();
-                continue;
-            }
-
             this._focusedPart = part;
             return;
         }
@@ -102,27 +115,20 @@ public class ManipulationManager : MonoBehaviour
         if (this._focusedPart == null) return;
 
         Part currentPart = this._focusedPart;
-        Part parentPart = currentPart;
 
-        while (parentPart != null)
+        while (currentPart.PartState != PartState.Loose && currentPart.PartType != PartType.Chassis)
         {
-            if (parentPart.IsRemoved || parentPart.IsChassis)
-            {
-                this._anchorObject = parentPart.gameObject;
-                return;
-            }
-
-            currentPart = parentPart;
-            parentPart = currentPart.transform.parent.GetComponent<Part>();
+            currentPart = currentPart.ParentPart;
         }
 
-        this._anchorObject = currentPart.transform.parent.gameObject;
+        this._anchorObject = currentPart.PartModel;
+        this._dragOffset = this._anchorObject.transform.position - this._movePlaneHitPoint;
         return;
     }
 
     private void DragAnchorObject()
     {
-        if (this._anchorObject == null || !this._isDragging) return;
+        if (this._anchorObject == null || this._focusedPart.PartState == PartState.Socketed || !this._isDragging) return;
 
         this._anchorObject.transform.position = this._movePlaneHitPoint + this._dragOffset;
     }
@@ -145,4 +151,18 @@ public class ManipulationManager : MonoBehaviour
             this._shouldIncrementDragDelay = false;
         }
     }
+
+#if UNITY_EDITOR
+    private void OnDrawGizmos()
+    {
+        if (this._isDragging)
+        {
+            Vector3 origin = this._focusedPart.PartModel.transform.position;
+            Vector3 endpoint = this._focusedPart.PartSocket.transform.position;
+
+            Gizmos.color = this._focusedPart.IsNearSocket() ? Color.green : Color.red;
+            Gizmos.DrawLine(origin, endpoint);
+        }
+    }
+#endif
 }

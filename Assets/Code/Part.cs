@@ -1,73 +1,107 @@
 using UnityEngine;
 
-public enum PartType
-{
-    Removable,
-    Fixed,
-    Chassis,
-}
-
 public class Part : MonoBehaviour
 {
+    [Header("Config")]
     [SerializeField] private PartType _partType;
+    [SerializeField] private Part _parentPart;
     [SerializeField] private Part[] _blockers;
-    [SerializeField] private bool _isRemoved;
+    [Header("Debug")]
+    [SerializeField] private PartState _partState = PartState.Placed;
+    [SerializeField] private GameObject _partSocket;
+    [SerializeField] private GameObject _partModel;
 
-    public bool IsChassis { get { return this._partType == PartType.Chassis; } }
-    public bool IsRemoved { get { return this._isRemoved; } }
-    public bool CanBeFocused
+    public PartType PartType { get { return this._partType; } }
+    public Part ParentPart { get { return this._parentPart; } }
+    public PartState PartState { get { return this._partState; } }
+    public GameObject PartSocket { get { return this._partSocket; } }
+    public GameObject PartModel { get { return this._partModel; } }
+
+    private void Awake()
     {
-        get
-        {
-            bool result = true;
-
-            for (int i = 0; i < this._blockers.Length; i++)
-            {
-                if (this._isRemoved || this._blockers[i]._isRemoved) continue;
-                result = false;
-                break;
-            }
-
-            return result;
-        }
+        this._partSocket = this.transform.GetChild(0).gameObject;
+        this._partModel = this.transform.GetChild(1).gameObject;
     }
-
-    private Transform _parent;
-    private Vector3 _anchorPosition;
-    private Quaternion _anchorRotation;
-    private Vector3 _anchorScale;
 
     private void Start()
     {
-        this._parent = transform.parent;
-        this._anchorPosition = this.transform.localPosition;
-        this._anchorRotation = this.transform.localRotation;
-        this._anchorScale = this.transform.localScale;
+        if (this._partType != PartType.Chassis)
+        {
+            this.transform.parent = this._parentPart.PartModel.transform;
+        }
     }
 
-    public void TryDoTheThing()
+    public bool IsBlocked()
     {
-        if (this._partType == PartType.Chassis) return;
+        bool result = false;
 
         for (int i = 0; i < this._blockers.Length; i++)
         {
-            if (this._blockers[i]._isRemoved) continue;
-            return;
+            if (this._blockers[i].PartState != PartState.Placed) continue;
+            
+            result = true;
+            break;
         }
+        return result;
+    }
 
-        this._isRemoved = !this._isRemoved;
+    public bool IsNearSocket()
+    {
+        return (this._partModel.transform.position - this._partSocket.transform.position).magnitude <= 1f;
+    }
 
-        if (this._isRemoved)
+    public bool TryChangeState(PartInteractionMode mode)
+    {
+        switch (mode)
         {
-            this.transform.parent = null;
-            this.transform.position = Vector3.zero;
-            this.transform.rotation = Quaternion.identity;
-            return;
-        }
+            case PartInteractionMode.Click:
+                if (this._partState == PartState.Placed) { this.ChangeState(PartState.Socketed); break; }
+                if (this._partState == PartState.Socketed) { this.ChangeState(PartState.Placed); break; }
+                return false;
 
-        this.transform.parent = this._parent;
-        this.transform.localPosition = this._anchorPosition;
-        this.transform.localRotation = this._anchorRotation;
-        this.transform.localScale = this._anchorScale;
+            case PartInteractionMode.Drag:
+                if (this._partState == PartState.Socketed) { this.ChangeState(PartState.Loose); break; }
+                if (this._partState == PartState.Loose) { this.ChangeState(PartState.Socketed); break; } // rever
+                return false;
+
+            default: return false;
+        }
+        return true;
+    }
+
+    private bool ChangeState(PartState newState)
+    {
+        switch (newState)
+        {
+            case PartState.Placed:
+                if (this.IsBlocked()) { return false; }
+                this._partModel.transform.localPosition = Vector3.zero;
+                this._partState = PartState.Placed;
+                return true;
+
+            case PartState.Socketed:
+                if (this._partState == PartState.Placed)
+                {
+                    if (this.IsBlocked()) { return false; }
+                    this._partModel.transform.localPosition = this._partSocket.transform.localPosition;
+                }
+                else if (this._partState == PartState.Loose)
+                {
+                    if (!this.IsNearSocket()) { return false; }
+                    this._partModel.transform.parent = this.transform;
+                    this._partModel.transform.localPosition = this._partSocket.transform.localPosition;
+                    this._partModel.transform.localRotation = this._partSocket.transform.localRotation;
+                }
+
+                this._partState = PartState.Socketed;
+                return true;
+
+            case PartState.Loose:
+                this._partModel.transform.parent = GameObject.FindAnyObjectByType<ManipulationManager>()._debugDevide.transform;
+                this._partState = PartState.Loose;
+                return true;
+
+            default: return false;
+        }
     }
 }
